@@ -1,0 +1,290 @@
+:root {
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  color: #123041;
+  background: linear-gradient(180deg, #f2f7fb 0%, #e7eef6 100%);
+  line-height: 1.5;
+  font-weight: 400;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.page-shell {
+  min-height: 100vh;
+  padding: 32px 20px 48px;
+}
+
+.page-content {
+  max-width: 1180px;
+  margin: 0 auto;
+  display: grid;
+  gap: 24px;
+}
+
+.card {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(18, 48, 65, 0.09);
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 18px 45px rgba(26, 64, 90, 0.08);
+}
+
+.hero {
+  display: grid;
+  gap: 18px;
+}
+
+.eyebrow,
+.section-label {
+  margin: 0 0 6px;
+  color: #176087;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  margin-bottom: 12px;
+  font-size: clamp(2rem, 3vw, 3.1rem);
+  line-height: 1.1;
+}
+
+h2 {
+  margin-bottom: 0;
+  font-size: 1.35rem;
+}
+
+.hero-copy,
+.muted,
+.mistake-item p,
+td,
+th,
+label span {
+  color: #4a6474;
+}
+
+.hero-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.meta-chip,
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.meta-chip {
+  background: #e0eef8;
+  color: #155579;
+}
+
+.grid-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.upload-form {
+  display: grid;
+  gap: 16px;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+}
+
+.field input {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid #c7d7e4;
+  background: #fbfdff;
+}
+
+.primary-button,
+.secondary-button {
+  border: 0;
+  border-radius: 12px;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.primary-button {
+  background: #0f6d90;
+  color: #fff;
+  font-weight: 700;
+}
+
+.secondary-button {
+  background: #edf4fa;
+  color: #164e6a;
+  font-weight: 600;
+}
+
+.primary-button:hover,
+.secondary-button:hover {
+  transform: translateY(-1px);
+}
+
+.primary-button:disabled,
+.secondary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+  transform: none;
+}
+
+.feedback {
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+}
+
+.error {
+  background: #fff1f0;
+  color: #9f3028;
+  border: 1px solid #f2c2be;
+}
+
+.stat-grid,
+.result-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
+}
+
+.stat-card {
+  padding: 18px;
+  border-radius: 16px;
+  background: #f4f9fc;
+  border: 1px solid #d9e7f0;
+}
+
+.stat-card span {
+  display: block;
+  margin-bottom: 8px;
+  color: #5f7686;
+}
+
+.stat-card strong {
+  font-size: 1.4rem;
+  color: #123041;
+}
+
+.mistakes-list {
+  margin-top: 20px;
+}
+
+.mistake-item {
+  padding: 14px 0;
+  border-top: 1px solid #e0e9f0;
+}
+
+.mistake-item strong {
+  color: #123041;
+}
+
+.table-wrap {
+  margin-top: 20px;
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 720px;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 14px 12px;
+  border-bottom: 1px solid #e3ecf3;
+  vertical-align: top;
+}
+
+th {
+  font-size: 0.92rem;
+  color: #24485d;
+  background: #f5f9fc;
+}
+
+.empty-row {
+  text-align: center;
+  color: #5f7686;
+}
+
+.status-pill.pass {
+  background: #e4f6eb;
+  color: #1d7a43;
+}
+
+.status-pill.fail {
+  background: #fde9e6;
+  color: #b14838;
+}
+
+@media (max-width: 900px) {
+  .grid-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .section-head {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 640px) {
+  .page-shell {
+    padding: 20px 14px 32px;
+  }
+
+  .card {
+    padding: 18px;
+    border-radius: 16px;
+  }
+
+  h1 {
+    font-size: 1.9rem;
+  }
+}

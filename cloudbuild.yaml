@@ -1,0 +1,15 @@
+# cloudbuild.yaml
+steps:
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        gcloud run deploy ieee-checker \
+          --source . \
+          --region=asia-south1 \
+          --allow-unauthenticated \
+          --memory=512Mi \
+          --min-instances=0 \
+          --max-instances=1 \
+          --concurrency=10
