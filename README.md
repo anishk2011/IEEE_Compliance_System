@@ -128,16 +128,16 @@ Open in browser: http://localhost:3000
 
 ## Backend Setup -
 Prerequisites
-Java 21
-MySQL
+- Java 21
+- MySQL
 
 ### Environment Variables
-DB_URL=jdbc:mysql://localhost:3306/ieee_compliance
-DB_USERNAME=root
-DB_PASSWORD=your_password
-JPA_DDL_AUTO=update
-UPLOAD_DIR=uploads
-PORT=8080
+- DB_URL=jdbc:mysql://localhost:3306/ieee_compliance
+- DB_USERNAME=root
+- DB_PASSWORD=your_password
+- JPA_DDL_AUTO=update
+- UPLOAD_DIR=uploads
+- PORT=8080
 
 Run Backend
 ./mvnw spring-boot:run
