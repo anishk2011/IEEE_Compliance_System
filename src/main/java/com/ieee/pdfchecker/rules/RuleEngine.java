@@ -17,9 +17,12 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @Component
@@ -36,6 +39,11 @@ public class RuleEngine {
             checkAuthorDetailsFormat(document, report);
             checkKeywordsFormat(document, report);
             checkIntroPresence(document, report);
+            checkTitlePresence(document, report);
+
+            String fullText = extractFullText(document);
+            checkConclusionPresence(fullText, report);
+            checkReferenceAndCitationRules(fullText, report);
         } catch (IOException e) {
             report.addError("Error reading PDF: " + e.getMessage());
         }
@@ -298,6 +306,308 @@ public class RuleEngine {
         }
     }
 
+    private void checkTitlePresence(PDDocument document, ComplianceReport report) throws IOException {
+        String firstPageText = extractFirstPageText(document);
+        List<String> meaningfulLines = getMeaningfulLines(firstPageText);
+
+        for (int i = 0; i < Math.min(5, meaningfulLines.size()); i++) {
+            String line = meaningfulLines.get(i);
+            if (isLikelyTitleLine(line)) {
+                report.addPass(RuleCode.TITLE_PRESENT, "A likely paper title was detected near the beginning of the first page.");
+                return;
+            }
+        }
+
+        report.addFail(RuleCode.TITLE_PRESENT, "A clear paper title was not detected near the beginning of the first page.");
+    }
+
+    private void checkConclusionPresence(String fullText, ComplianceReport report) {
+        if (containsSectionHeading(fullText,
+                "Conclusion",
+                "Conclusions",
+                "Conclusion and Future Work",
+                "Conclusion & Future Work")) {
+            report.addPass(RuleCode.CONCLUSION_PRESENT, "A conclusion section was detected.");
+            return;
+        }
+
+        report.addFail(RuleCode.CONCLUSION_PRESENT, "A conclusion section was not detected. Add a Conclusion or Conclusion and Future Work section.");
+    }
+
+    private void checkReferenceAndCitationRules(String fullText, ComplianceReport report) {
+        ReferencesSection referencesSection = findReferencesSection(fullText);
+
+        if (referencesSection == null) {
+            report.addFail(RuleCode.REFERENCES_PRESENT, "A References section was not detected near the end of the document.");
+            report.addNotApplicable(RuleCode.REFERENCE_ENTRIES_PRESENT, "Reference entry checks were skipped because no References section was found.");
+            report.addNotApplicable(RuleCode.REFERENCE_NUMBERING_SEQUENCE, "Reference numbering was not checked because no References section was found.");
+            report.addFail(RuleCode.IN_TEXT_CITATION_PRESENT, "No IEEE-style in-text citations were detected in the document body.");
+            report.addNotApplicable(RuleCode.CITATION_REFERENCE_MATCHING, "Citation-to-reference matching was skipped because no References section was found.");
+            report.addNotApplicable(RuleCode.REFERENCE_USAGE, "Reference usage was not checked because no References section was found.");
+            return;
+        }
+
+        if (referencesSection.usesBibliographyHeading()) {
+            report.addPass(RuleCode.REFERENCES_PRESENT, "A Bibliography section was detected near the end of the document. IEEE usually prefers the heading 'References'.");
+        } else {
+            report.addPass(RuleCode.REFERENCES_PRESENT, "A References section was detected near the end of the document.");
+        }
+
+        List<Integer> referenceNumbers = extractReferenceEntryNumbers(referencesSection.sectionText());
+        if (referenceNumbers.isEmpty()) {
+            report.addFail(RuleCode.REFERENCE_ENTRIES_PRESENT, "No numbered reference entries like [1], [2], or [3] were detected in the References section.");
+            report.addNotApplicable(RuleCode.REFERENCE_NUMBERING_SEQUENCE, "Reference numbering was not checked because no numbered reference entries were found.");
+        } else {
+            report.addPass(RuleCode.REFERENCE_ENTRIES_PRESENT, "Numbered reference entries were detected in the References section.");
+
+            String numberingIssue = validateSequentialNumbers(referenceNumbers);
+            if (numberingIssue == null) {
+                report.addPass(RuleCode.REFERENCE_NUMBERING_SEQUENCE, "Reference entries are numbered sequentially starting from [1].");
+            } else {
+                report.addFail(RuleCode.REFERENCE_NUMBERING_SEQUENCE, numberingIssue);
+            }
+        }
+
+        Set<Integer> citedNumbers = extractCitationNumbersFromBody(referencesSection.bodyText());
+        if (citedNumbers.isEmpty()) {
+            report.addFail(RuleCode.IN_TEXT_CITATION_PRESENT, "No IEEE-style in-text citations were detected before the References section.");
+            report.addNotApplicable(RuleCode.CITATION_REFERENCE_MATCHING, "Citation-to-reference matching was skipped because no in-text citations were found.");
+            report.addNotApplicable(RuleCode.REFERENCE_USAGE, "Reference usage was not checked because no in-text citations were found.");
+            return;
+        }
+
+        report.addPass(RuleCode.IN_TEXT_CITATION_PRESENT, "IEEE-style in-text citations were detected in the document body.");
+
+        if (referenceNumbers.isEmpty()) {
+            report.addNotApplicable(RuleCode.CITATION_REFERENCE_MATCHING, "Citation-to-reference matching was skipped because no numbered reference entries were found.");
+            report.addNotApplicable(RuleCode.REFERENCE_USAGE, "Reference usage was not checked because no numbered reference entries were found.");
+            return;
+        }
+
+        Set<Integer> referenceNumberSet = new LinkedHashSet<>(referenceNumbers);
+        Set<Integer> missingReferences = new LinkedHashSet<>(citedNumbers);
+        missingReferences.removeAll(referenceNumberSet);
+
+        if (missingReferences.isEmpty()) {
+            report.addPass(RuleCode.CITATION_REFERENCE_MATCHING, "Every detected in-text citation has a matching numbered reference entry.");
+        } else {
+            report.addFail(RuleCode.CITATION_REFERENCE_MATCHING,
+                    "Some in-text citations do not have matching reference entries: " + formatNumbers(missingReferences) + ".");
+        }
+
+        Set<Integer> unusedReferences = new LinkedHashSet<>(referenceNumberSet);
+        unusedReferences.removeAll(citedNumbers);
+
+        if (unusedReferences.isEmpty()) {
+            report.addPass(RuleCode.REFERENCE_USAGE, "Every numbered reference entry is cited at least once in the document body.");
+        } else {
+            report.addFail(RuleCode.REFERENCE_USAGE,
+                    "Some reference entries are not cited in the document body: " + formatNumbers(unusedReferences) + ".");
+        }
+    }
+
+    private String extractFullText(PDDocument document) throws IOException {
+        PDFTextStripper textStripper = new PDFTextStripper();
+        return textStripper.getText(document);
+    }
+
+    private String extractFirstPageText(PDDocument document) throws IOException {
+        PDFTextStripper textStripper = new PDFTextStripper();
+        textStripper.setStartPage(1);
+        textStripper.setEndPage(1);
+        return textStripper.getText(document);
+    }
+
+    private List<String> getMeaningfulLines(String text) {
+        List<String> meaningfulLines = new ArrayList<>();
+        for (String line : text.split("\\R")) {
+            String normalized = line.replaceAll("\\s+", " ").trim();
+            if (!normalized.isBlank()) {
+                meaningfulLines.add(normalized);
+            }
+        }
+        return meaningfulLines;
+    }
+
+    private boolean isLikelyTitleLine(String line) {
+        String normalized = line.replaceAll("\\s+", " ").trim();
+        String lower = normalized.toLowerCase(Locale.ROOT);
+
+        if (normalized.length() < 12 || !normalized.matches(".*[A-Za-z].*")) {
+            return false;
+        }
+
+        if (lower.contains("@")
+                || lower.startsWith("abstract")
+                || lower.startsWith("keywords")
+                || lower.startsWith("index terms")
+                || lower.startsWith("introduction")
+                || lower.startsWith("references")
+                || lower.startsWith("bibliography")) {
+            return false;
+        }
+
+        if (lower.startsWith("department")
+                || lower.startsWith("university")
+                || lower.startsWith("school")
+                || lower.startsWith("faculty")
+                || lower.startsWith("author")) {
+            return false;
+        }
+
+        String[] words = normalized.split("\\s+");
+        return words.length >= 3 || normalized.length() >= 25;
+    }
+
+    private boolean containsSectionHeading(String text, String... headings) {
+        for (String heading : headings) {
+            Pattern pattern = buildSectionHeadingPattern(heading);
+            if (pattern.matcher(text).find()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private ReferencesSection findReferencesSection(String fullText) {
+        String[] lines = fullText.split("\\R");
+        int meaningfulIndex = 0;
+
+        for (int i = 0; i < lines.length; i++) {
+            String normalized = lines[i].replaceAll("\\s+", " ").trim();
+            if (normalized.isBlank()) {
+                continue;
+            }
+
+            meaningfulIndex++;
+            if (meaningfulIndex <= 8) {
+                continue;
+            }
+
+            if (buildSectionHeadingPattern("References").matcher(normalized).matches()) {
+                return buildReferencesSection(lines, i, false);
+            }
+
+            if (buildSectionHeadingPattern("Bibliography").matcher(normalized).matches()) {
+                return buildReferencesSection(lines, i, true);
+            }
+        }
+
+        return null;
+    }
+
+    private ReferencesSection buildReferencesSection(String[] lines, int sectionLineIndex, boolean bibliographyHeading) {
+        StringBuilder bodyText = new StringBuilder();
+        StringBuilder sectionText = new StringBuilder();
+
+        for (int i = 0; i < sectionLineIndex; i++) {
+            bodyText.append(lines[i]).append(System.lineSeparator());
+        }
+
+        for (int i = sectionLineIndex + 1; i < lines.length; i++) {
+            sectionText.append(lines[i]).append(System.lineSeparator());
+        }
+
+        return new ReferencesSection(bodyText.toString(), sectionText.toString(), bibliographyHeading);
+    }
+
+    private Pattern buildSectionHeadingPattern(String heading) {
+        String[] words = heading.trim().split("\\s+");
+        StringBuilder headingRegex = new StringBuilder();
+        for (int i = 0; i < words.length; i++) {
+            if (i > 0) {
+                headingRegex.append("\\s+");
+            }
+            headingRegex.append(Pattern.quote(words[i]));
+        }
+
+        return Pattern.compile("(?i)^\\s*(?:[IVXLC]+\\.?|\\d+(?:\\.\\d+)*\\.?)?\\s*" + headingRegex + "\\s*$");
+    }
+
+    private List<Integer> extractReferenceEntryNumbers(String referencesText) {
+        List<Integer> numbers = new ArrayList<>();
+        Matcher matcher = Pattern.compile("(?m)^\\s*\\[(\\d+)]").matcher(referencesText);
+        while (matcher.find()) {
+            numbers.add(Integer.parseInt(matcher.group(1)));
+        }
+        return numbers;
+    }
+
+    private Set<Integer> extractCitationNumbersFromBody(String bodyText) {
+        Set<Integer> citationNumbers = new LinkedHashSet<>();
+
+        // Expand ranges written as [1]-[3] before reading individual bracket groups.
+        Matcher pairedRangeMatcher = Pattern.compile("\\[(\\d+)]\\s*-\\s*\\[(\\d+)]").matcher(bodyText);
+        while (pairedRangeMatcher.find()) {
+            addRange(citationNumbers,
+                    Integer.parseInt(pairedRangeMatcher.group(1)),
+                    Integer.parseInt(pairedRangeMatcher.group(2)));
+        }
+
+        Matcher bracketMatcher = Pattern.compile("\\[([^\\]]+)]").matcher(bodyText);
+        while (bracketMatcher.find()) {
+            String content = bracketMatcher.group(1).replaceAll("(?i),\\s*pp?\\..*$", "");
+            Matcher tokenMatcher = Pattern.compile("\\d+\\s*-\\s*\\d+|\\d+").matcher(content);
+
+            while (tokenMatcher.find()) {
+                String token = tokenMatcher.group();
+                if (token.contains("-")) {
+                    String[] parts = token.split("\\s*-\\s*");
+                    addRange(citationNumbers, Integer.parseInt(parts[0]), Integer.parseInt(parts[1]));
+                } else {
+                    citationNumbers.add(Integer.parseInt(token));
+                }
+            }
+        }
+
+        return citationNumbers;
+    }
+
+    private void addRange(Set<Integer> numbers, int start, int end) {
+        if (start > end) {
+            int temp = start;
+            start = end;
+            end = temp;
+        }
+
+        for (int value = start; value <= end; value++) {
+            numbers.add(value);
+        }
+    }
+
+    private String validateSequentialNumbers(List<Integer> numbers) {
+        if (numbers.isEmpty()) {
+            return "No numbered reference entries were found to validate.";
+        }
+
+        if (numbers.get(0) != 1) {
+            return "Reference numbering should start from [1], but the first detected entry was [" + numbers.get(0) + "].";
+        }
+
+        for (int i = 1; i < numbers.size(); i++) {
+            int expected = numbers.get(i - 1) + 1;
+            int actual = numbers.get(i);
+
+            if (actual == numbers.get(i - 1)) {
+                return "Duplicate reference number detected: [" + actual + "].";
+            }
+
+            if (actual != expected) {
+                return "Reference numbering is not sequential. Expected [" + expected + "] but found [" + actual + "].";
+            }
+        }
+
+        return null;
+    }
+
+    private String formatNumbers(Set<Integer> numbers) {
+        return numbers.stream()
+                .sorted()
+                .map(number -> "[" + number + "]")
+                .reduce((left, right) -> left + ", " + right)
+                .orElse("");
+    }
+
     private boolean isTextJustified(List<TextPosition> textPositions) {
         if (textPositions.size() < 2) return false;
 
@@ -308,5 +618,8 @@ public class RuleEngine {
         avgSpacing /= (textPositions.size() - 1);
 
         return avgSpacing < 2.0;
+    }
+
+    private record ReferencesSection(String bodyText, String sectionText, boolean usesBibliographyHeading) {
     }
 }
