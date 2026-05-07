@@ -1,7 +1,12 @@
 package com.ieee.pdfchecker.reports;
 
 public class ComplianceItem {
-    private String status;  // "pass", "fail"
+    public static final String STATUS_PASS = "pass";
+    public static final String STATUS_FAIL = "fail";
+    public static final String STATUS_WARN = "warn";
+    public static final String STATUS_NA = "na";
+
+    private String status;
     private String rule;
     private String ruleCode;
     private String message;
@@ -36,5 +41,21 @@ public class ComplianceItem {
 
     public void setSuggestion(String suggestion) {
         this.suggestion = suggestion;
+    }
+
+    public boolean isPass() {
+        return STATUS_PASS.equalsIgnoreCase(status);
+    }
+
+    public boolean isFail() {
+        return STATUS_FAIL.equalsIgnoreCase(status);
+    }
+
+    public boolean isWarn() {
+        return STATUS_WARN.equalsIgnoreCase(status);
+    }
+
+    public boolean isNotApplicable() {
+        return STATUS_NA.equalsIgnoreCase(status);
     }
 }

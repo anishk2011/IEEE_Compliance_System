@@ -1,7 +1,9 @@
 :root {
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
   color: #123041;
-  background: linear-gradient(180deg, #f2f7fb 0%, #e7eef6 100%);
+  background:
+    radial-gradient(circle at top right, rgba(86, 165, 194, 0.18), transparent 24%),
+    linear-gradient(180deg, #f3f8fc 0%, #e6eef6 100%);
   line-height: 1.5;
   font-weight: 400;
 }
@@ -14,6 +16,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  background: inherit;
 }
 
 button,
@@ -31,23 +34,33 @@ input {
 }
 
 .page-content {
-  max-width: 1180px;
+  max-width: 1220px;
   margin: 0 auto;
   display: grid;
-  gap: 24px;
+  gap: 26px;
 }
 
 .card {
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid rgba(18, 48, 65, 0.09);
-  border-radius: 20px;
-  padding: 24px;
-  box-shadow: 0 18px 45px rgba(26, 64, 90, 0.08);
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(18, 48, 65, 0.08);
+  border-radius: 22px;
+  padding: 26px;
+  box-shadow:
+    0 18px 45px rgba(26, 64, 90, 0.08),
+    0 2px 8px rgba(26, 64, 90, 0.04);
+  backdrop-filter: blur(10px);
 }
 
 .hero {
-  display: grid;
-  gap: 18px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  overflow: hidden;
+}
+
+.hero-copy-block {
+  max-width: 760px;
 }
 
 .eyebrow,
@@ -91,6 +104,7 @@ label span {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+  justify-content: flex-end;
 }
 
 .meta-chip,
@@ -99,14 +113,17 @@ label span {
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  padding: 8px 12px;
-  font-size: 0.88rem;
+  padding: 8px 13px;
+  font-size: 0.8rem;
   font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
 .meta-chip {
-  background: #e0eef8;
-  color: #155579;
+  background: #def0f9;
+  color: #0f5877;
+  border: 1px solid rgba(15, 88, 119, 0.08);
 }
 
 .grid-layout {
@@ -120,7 +137,7 @@ label span {
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 20px;
+  margin-bottom: 22px;
 }
 
 .upload-form {
@@ -139,6 +156,14 @@ label span {
   border-radius: 12px;
   border: 1px solid #c7d7e4;
   background: #fbfdff;
+  color: #123041;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.field input:focus {
+  outline: none;
+  border-color: #4ba3c7;
+  box-shadow: 0 0 0 4px rgba(75, 163, 199, 0.16);
 }
 
 .primary-button,
@@ -151,15 +176,17 @@ label span {
 }
 
 .primary-button {
-  background: #0f6d90;
+  background: linear-gradient(135deg, #0f6d90 0%, #1480a0 100%);
   color: #fff;
   font-weight: 700;
+  box-shadow: 0 10px 18px rgba(15, 109, 144, 0.18);
 }
 
 .secondary-button {
   background: #edf4fa;
   color: #164e6a;
   font-weight: 600;
+  border: 1px solid rgba(22, 78, 106, 0.08);
 }
 
 .primary-button:hover,
@@ -189,26 +216,51 @@ label span {
 .stat-grid,
 .result-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 15px;
 }
 
 .stat-card {
+  min-width: 0;
   padding: 18px;
-  border-radius: 16px;
-  background: #f4f9fc;
-  border: 1px solid #d9e7f0;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #f5fafc 0%, #f0f7fb 100%);
+  border: 1px solid #dbe9f2;
 }
 
 .stat-card span {
   display: block;
   margin-bottom: 8px;
   color: #5f7686;
+  font-size: 0.84rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  font-weight: 700;
 }
 
 .stat-card strong {
   font-size: 1.4rem;
   color: #123041;
+  display: block;
+  min-width: 0;
+}
+
+.result-stat-card {
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.file-stat-card {
+  grid-column: span 2;
+}
+
+.file-name-text {
+  font-size: 1rem;
+  line-height: 1.45;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .mistakes-list {
@@ -218,6 +270,8 @@ label span {
 .mistake-item {
   padding: 14px 0;
   border-top: 1px solid #e0e9f0;
+  display: grid;
+  gap: 8px;
 }
 
 .mistake-item strong {
@@ -227,26 +281,35 @@ label span {
 .table-wrap {
   margin-top: 20px;
   overflow-x: auto;
+  border: 1px solid #dfebf3;
+  border-radius: 18px;
+  background: #fcfeff;
 }
 
 table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 720px;
+  min-width: 880px;
+  table-layout: fixed;
 }
 
 th,
 td {
   text-align: left;
-  padding: 14px 12px;
+  padding: 16px 14px;
   border-bottom: 1px solid #e3ecf3;
   vertical-align: top;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 th {
   font-size: 0.92rem;
   color: #24485d;
-  background: #f5f9fc;
+  background: #f4f9fc;
+  font-weight: 700;
+  position: sticky;
+  top: 0;
 }
 
 .empty-row {
@@ -254,14 +317,50 @@ th {
   color: #5f7686;
 }
 
+.status-column,
+.status-cell {
+  width: 120px;
+  text-align: center;
+}
+
+.rule-name-cell {
+  width: 190px;
+  font-weight: 700;
+  color: #17394b;
+}
+
+.message-cell,
+.suggestion-cell {
+  line-height: 1.55;
+}
+
 .status-pill.pass {
-  background: #e4f6eb;
-  color: #1d7a43;
+  background: #e2f6eb;
+  color: #1a7a45;
+  border: 1px solid rgba(26, 122, 69, 0.12);
 }
 
 .status-pill.fail {
-  background: #fde9e6;
-  color: #b14838;
+  background: #fde7e4;
+  color: #b34537;
+  border: 1px solid rgba(179, 69, 55, 0.12);
+}
+
+.status-pill.warn {
+  background: #fff1d8;
+  color: #a86600;
+  border: 1px solid rgba(168, 102, 0, 0.12);
+}
+
+.status-pill.na,
+.status-pill.unknown {
+  background: #e9f0f6;
+  color: #587182;
+  border: 1px solid rgba(88, 113, 130, 0.12);
+}
+
+.latest-result-card {
+  overflow: hidden;
 }
 
 @media (max-width: 900px) {
@@ -269,8 +368,21 @@ th {
     grid-template-columns: 1fr;
   }
 
+  .hero {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
   .section-head {
     flex-direction: column;
+  }
+
+  .hero-meta {
+    justify-content: flex-start;
+  }
+
+  .file-stat-card {
+    grid-column: span 1;
   }
 }
 
@@ -286,5 +398,24 @@ th {
 
   h1 {
     font-size: 1.9rem;
+  }
+
+  .stat-grid,
+  .result-grid {
+    grid-template-columns: 1fr;
+  }
+
+  table {
+    min-width: 700px;
+  }
+
+  th,
+  td {
+    padding: 14px 12px;
+  }
+
+  .status-column,
+  .status-cell {
+    width: 110px;
   }
 }

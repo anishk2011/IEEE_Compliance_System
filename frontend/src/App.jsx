@@ -25,9 +25,9 @@ function App() {
     return uploadResult.items.map((item, index) => ({
       id: `${item.ruleCode || item.rule || "rule"}-${index}`,
       ruleName: item.rule || item.ruleName || "Unknown rule",
-      status: (item.status || "unknown").toUpperCase(),
+      status: normalizeStatus(item.status),
       message: item.message || "-",
-      suggestion: item.suggestion || "No suggestion provided"
+      suggestion: resolveSuggestion(item.status, item.suggestion)
     }));
   }, [uploadResult]);
 
@@ -98,7 +98,7 @@ function App() {
     <div className="page-shell">
       <main className="page-content">
         <section className="hero card">
-          <div>
+          <div className="hero-copy-block">
             <p className="eyebrow">IEEE Compliance Platform</p>
             <h1>Upload a PDF and review compliance results in one place.</h1>
             <p className="hero-copy">
@@ -221,7 +221,7 @@ function App() {
           </div>
         </section>
 
-        <section className="card">
+        <section className="card latest-result-card">
           <div className="section-head">
             <div>
               <p className="section-label">Latest Result</p>
@@ -236,30 +236,32 @@ function App() {
           ) : (
             <>
               <div className="result-grid">
-                <article className="stat-card">
+                <article className="stat-card result-stat-card">
                   <span>Score</span>
                   <strong>{formatScore(uploadResult.score)}</strong>
                 </article>
-                <article className="stat-card">
+                <article className="stat-card result-stat-card">
                   <span>Paper ID</span>
                   <strong>{uploadResult.paperId ?? "-"}</strong>
                 </article>
-                <article className="stat-card">
+                <article className="stat-card result-stat-card">
                   <span>Version ID</span>
                   <strong>{uploadResult.versionId ?? "-"}</strong>
                 </article>
-                <article className="stat-card">
+                <article className="stat-card result-stat-card file-stat-card">
                   <span>File</span>
-                  <strong>{uploadResult.fileName || selectedFile?.name || "-"}</strong>
+                  <strong className="file-name-text">
+                    {uploadResult.fileName || selectedFile?.name || "-"}
+                  </strong>
                 </article>
               </div>
 
               <div className="table-wrap">
-                <table>
+                <table className="results-table">
                   <thead>
                     <tr>
                       <th>Rule name</th>
-                      <th>Status</th>
+                      <th className="status-column">Status</th>
                       <th>Message</th>
                       <th>Suggestion</th>
                     </tr>
@@ -274,18 +276,16 @@ function App() {
                     ) : (
                       normalizedItems.map((item) => (
                         <tr key={item.id}>
-                          <td>{item.ruleName}</td>
-                          <td>
+                          <td className="rule-name-cell">{item.ruleName}</td>
+                          <td className="status-cell">
                             <span
-                              className={`status-pill ${
-                                item.status === "PASS" ? "pass" : "fail"
-                              }`}
+                              className={`status-pill ${statusClassName(item.status)}`}
                             >
-                              {item.status}
+                              {formatStatusLabel(item.status)}
                             </span>
                           </td>
-                          <td>{item.message}</td>
-                          <td>{item.suggestion}</td>
+                          <td className="message-cell">{item.message}</td>
+                          <td className="suggestion-cell">{item.suggestion}</td>
                         </tr>
                       ))
                     )}
@@ -316,6 +316,72 @@ function formatScore(score) {
   }
 
   return `${Number(score).toFixed(1)}%`;
+}
+
+function normalizeStatus(status) {
+  const normalized = String(status || "")
+    .trim()
+    .replace(/[\s-]+/g, "_")
+    .toUpperCase();
+
+  if (normalized === "PASS") {
+    return "PASS";
+  }
+  if (normalized === "FAIL") {
+    return "FAIL";
+  }
+  if (normalized === "WARN" || normalized === "WARNING") {
+    return "WARN";
+  }
+  if (
+    normalized === "NA" ||
+    normalized === "N_A" ||
+    normalized === "NOT_APPLICABLE" ||
+    normalized === "NOTAPPLICABLE"
+  ) {
+    return "NA";
+  }
+
+  return "UNKNOWN";
+}
+
+function statusClassName(status) {
+  if (status === "PASS") {
+    return "pass";
+  }
+  if (status === "FAIL") {
+    return "fail";
+  }
+  if (status === "WARN") {
+    return "warn";
+  }
+  if (status === "NA") {
+    return "na";
+  }
+  return "unknown";
+}
+
+function formatStatusLabel(status) {
+  return status === "NA" ? "N/A" : status;
+}
+
+function resolveSuggestion(status, suggestion) {
+  const normalizedStatus = normalizeStatus(status);
+  const normalizedSuggestion = typeof suggestion === "string" ? suggestion.trim() : "";
+
+  if (normalizedStatus === "NA") {
+    return "Not applicable for this document.";
+  }
+
+  if (normalizedStatus === "PASS") {
+    return normalizedSuggestion || "No suggestion provided";
+  }
+
+  if (normalizedStatus === "WARN" || normalizedStatus === "FAIL") {
+    return normalizedSuggestion || "Review this rule based on IEEE formatting guidelines.";
+  }
+
+  return normalizedSuggestion || "No suggestion provided";
 }
 
 export default App;

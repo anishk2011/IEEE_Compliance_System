@@ -33,17 +33,33 @@ public class ComplianceReport {
     public void addError(String error) {
         errors.add(error);
         RuleCode ruleCode = RuleCode.resolve(null, error);
-        items.add(new ComplianceItem("fail", ruleCode.getRuleName(), ruleCode.getCode(), error));
+        addFail(ruleCode, error);
     }
 
     public void addInfo(String info) {
         infoMessages.add(info);
         RuleCode ruleCode = RuleCode.resolve(null, info);
-        items.add(new ComplianceItem("pass", ruleCode.getRuleName(), ruleCode.getCode(), info));
+        addPass(ruleCode, info);
+    }
+
+    public void addPass(RuleCode ruleCode, String message) {
+        items.add(new ComplianceItem(ComplianceItem.STATUS_PASS, ruleCode.getRuleName(), ruleCode.getCode(), message));
+    }
+
+    public void addFail(RuleCode ruleCode, String message) {
+        items.add(new ComplianceItem(ComplianceItem.STATUS_FAIL, ruleCode.getRuleName(), ruleCode.getCode(), message));
+    }
+
+    public void addWarn(RuleCode ruleCode, String message) {
+        items.add(new ComplianceItem(ComplianceItem.STATUS_WARN, ruleCode.getRuleName(), ruleCode.getCode(), message));
+    }
+
+    public void addNotApplicable(RuleCode ruleCode, String message) {
+        items.add(new ComplianceItem(ComplianceItem.STATUS_NA, ruleCode.getRuleName(), ruleCode.getCode(), message));
     }
 
     public boolean isCompliant() {
-        return errors.isEmpty();
+        return items.stream().noneMatch(ComplianceItem::isFail);
     }
 
     public String getFileName() {
