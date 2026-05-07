@@ -264,6 +264,17 @@ th {
   color: #b14838;
 }
 
+.status-pill.warn {
+  background: #fff3df;
+  color: #b26a00;
+}
+
+.status-pill.na,
+.status-pill.unknown {
+  background: #edf1f4;
+  color: #5d6f7e;
+}
+
 @media (max-width: 900px) {
   .grid-layout {
     grid-template-columns: 1fr;

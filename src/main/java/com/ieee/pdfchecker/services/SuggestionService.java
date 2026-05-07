@@ -24,13 +24,19 @@ public class SuggestionService {
     }
 
     public String getSuggestion(RuleCode ruleCode, String status) {
-        if (!"fail".equalsIgnoreCase(status)) {
+        if (!com.ieee.pdfchecker.reports.ComplianceItem.STATUS_FAIL.equalsIgnoreCase(status)) {
             return null;
         }
         return SUGGESTIONS.getOrDefault(ruleCode, SUGGESTIONS.get(RuleCode.GENERAL));
     }
 
     public String getSeverity(String status) {
-        return "fail".equalsIgnoreCase(status) ? "HIGH" : "INFO";
+        if (com.ieee.pdfchecker.reports.ComplianceItem.STATUS_FAIL.equalsIgnoreCase(status)) {
+            return "HIGH";
+        }
+        if (com.ieee.pdfchecker.reports.ComplianceItem.STATUS_WARN.equalsIgnoreCase(status)) {
+            return "LOW";
+        }
+        return "INFO";
     }
 }

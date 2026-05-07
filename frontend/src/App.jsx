@@ -25,7 +25,7 @@ function App() {
     return uploadResult.items.map((item, index) => ({
       id: `${item.ruleCode || item.rule || "rule"}-${index}`,
       ruleName: item.rule || item.ruleName || "Unknown rule",
-      status: (item.status || "unknown").toUpperCase(),
+      status: normalizeStatus(item.status),
       message: item.message || "-",
       suggestion: item.suggestion || "No suggestion provided"
     }));
@@ -277,11 +277,9 @@ function App() {
                           <td>{item.ruleName}</td>
                           <td>
                             <span
-                              className={`status-pill ${
-                                item.status === "PASS" ? "pass" : "fail"
-                              }`}
+                              className={`status-pill ${statusClassName(item.status)}`}
                             >
-                              {item.status}
+                              {formatStatusLabel(item.status)}
                             </span>
                           </td>
                           <td>{item.message}</td>
@@ -316,6 +314,30 @@ function formatScore(score) {
   }
 
   return `${Number(score).toFixed(1)}%`;
+}
+
+function normalizeStatus(status) {
+  return (status || "unknown").toUpperCase();
+}
+
+function statusClassName(status) {
+  if (status === "PASS") {
+    return "pass";
+  }
+  if (status === "FAIL") {
+    return "fail";
+  }
+  if (status === "WARN") {
+    return "warn";
+  }
+  if (status === "NA") {
+    return "na";
+  }
+  return "unknown";
+}
+
+function formatStatusLabel(status) {
+  return status === "NA" ? "N/A" : status;
 }
 
 export default App;

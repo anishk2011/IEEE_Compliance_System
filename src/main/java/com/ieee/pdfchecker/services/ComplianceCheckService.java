@@ -88,14 +88,22 @@ public class ComplianceCheckService {
 
     private int calculateScore(List<ComplianceItem> items) {
         if (items == null || items.isEmpty()) {
-            return 0;
+            return 100;
         }
 
         long passed = items.stream()
-                .filter(item -> "pass".equalsIgnoreCase(item.getStatus()))
+                .filter(ComplianceItem::isPass)
+                .count();
+        long failed = items.stream()
+                .filter(ComplianceItem::isFail)
                 .count();
 
-        return (int) Math.round((passed * 100.0) / items.size());
+        long scoredItems = passed + failed;
+        if (scoredItems == 0) {
+            return 100;
+        }
+
+        return (int) Math.round((passed * 100.0) / scoredItems);
     }
 
     private RuleResult toRuleResult(PaperVersion version, ComplianceItem item) {
