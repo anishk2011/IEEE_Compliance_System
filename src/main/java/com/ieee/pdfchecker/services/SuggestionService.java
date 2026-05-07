@@ -9,6 +9,9 @@ import static java.util.Map.entry;
 @Service
 public class SuggestionService {
 
+    private static final String FONT_WARNING_SUGGESTION =
+            "Ensure the final exported PDF uses Times New Roman or an IEEE-compatible serif font. If the PDF uses embedded CIDFont aliases, verify the font manually before final submission.";
+
     private static final Map<RuleCode, String> SUGGESTIONS = Map.ofEntries(
             entry(RuleCode.ABSTRACT_PRESENT, "Add an Abstract heading near the beginning of the paper and include a concise summary."),
             entry(RuleCode.FONT_COMPLIANCE, "Use Times New Roman or an IEEE-accepted equivalent font consistently throughout the document."),
@@ -52,6 +55,15 @@ public class SuggestionService {
     }
 
     public String getSuggestion(RuleCode ruleCode, String status) {
+        if (RuleCode.FONT_COMPLIANCE == ruleCode
+                && com.ieee.pdfchecker.reports.ComplianceItem.STATUS_WARN.equalsIgnoreCase(status)) {
+            return FONT_WARNING_SUGGESTION;
+        }
+
+        if (com.ieee.pdfchecker.reports.ComplianceItem.STATUS_WARN.equalsIgnoreCase(status)) {
+            return SUGGESTIONS.getOrDefault(ruleCode, SUGGESTIONS.get(RuleCode.GENERAL));
+        }
+
         if (!com.ieee.pdfchecker.reports.ComplianceItem.STATUS_FAIL.equalsIgnoreCase(status)) {
             return null;
         }

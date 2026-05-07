@@ -1,16 +1,20 @@
 package com.ieee.pdfchecker.rules;
 
 import com.ieee.pdfchecker.reports.ComplianceReport;
+import org.apache.pdfbox.cos.COSName;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageTree;
+import org.apache.pdfbox.pdmodel.PDResources;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.pdfbox.text.TextPosition;
+import org.apache.pdfbox.pdmodel.graphics.PDXObject;
+import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
+import org.apache.pdfbox.pdmodel.font.PDFont;
+import org.apache.pdfbox.pdmodel.font.PDFontDescriptor;
 import org.springframework.stereotype.Component;
 
 import java.awt.geom.Rectangle2D;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -21,6 +25,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -44,6 +49,8 @@ public class RuleEngine {
             String fullText = extractFullText(document);
             checkConclusionPresence(fullText, report);
             checkReferenceAndCitationRules(fullText, report);
+            checkFigureRules(document, fullText, report);
+            checkTableRules(fullText, report);
         } catch (IOException e) {
             report.addError("Error reading PDF: " + e.getMessage());
         }
@@ -178,63 +185,49 @@ public class RuleEngine {
     }
 
     private void checkFont(PDDocument document, ComplianceReport report) {
-        boolean foundValidFont = false;
-        Set<String> detectedFonts = new HashSet<>();
-
-        List<String> validFonts = Arrays.asList(
-                "timesnewroman", "times-roman", "timesroman", "times",
-                "nimbusromno9l-regu", "nimbusromno9l-medi", "nimbusromno9l-reguital", "nimbusromno9l-mediital",
-                "cmr", "cmm", "cmmi", "cmsy", "cmex"
-        );
+        Set<String> detectedFonts = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        Set<String> normalizedFonts = new HashSet<>();
 
         try {
-            ByteArrayOutputStream outStream = new ByteArrayOutputStream();
-            document.save(outStream);
-            ByteArrayInputStream inStream = new ByteArrayInputStream(outStream.toByteArray());
-            com.itextpdf.kernel.pdf.PdfReader reader = new com.itextpdf.kernel.pdf.PdfReader(inStream);
-            com.itextpdf.kernel.pdf.PdfDocument pdfDoc = new com.itextpdf.kernel.pdf.PdfDocument(reader);
-            for (int i = 1; i <= pdfDoc.getNumberOfPages(); i++) {
-                com.itextpdf.kernel.pdf.PdfPage page = pdfDoc.getPage(i);
-                com.itextpdf.kernel.pdf.PdfDictionary resources = page.getPdfObject()
-                        .getAsDictionary(com.itextpdf.kernel.pdf.PdfName.Resources);
-                if (resources == null) continue;
-                com.itextpdf.kernel.pdf.PdfDictionary fonts = resources.getAsDictionary(com.itextpdf.kernel.pdf.PdfName.Font);
-                if (fonts == null) continue;
-                for (com.itextpdf.kernel.pdf.PdfName fontKey : fonts.keySet()) {
-                    com.itextpdf.kernel.pdf.PdfDictionary fontDict = fonts.getAsDictionary(fontKey);
-                    if (fontDict == null) continue;
-                    com.itextpdf.kernel.pdf.PdfName baseFont = fontDict.getAsName(com.itextpdf.kernel.pdf.PdfName.BaseFont);
-                    if (baseFont == null) continue;
-                    String fontNameStr = baseFont.getValue();
-                    String cleanFontName = fontNameStr.contains("+")
-                            ? fontNameStr.substring(fontNameStr.indexOf("+") + 1)
-                            : fontNameStr;
-                    String normalizedFont = cleanFontName.toLowerCase().replaceAll("\\s+", "");
-                    detectedFonts.add(cleanFontName);
-                    for (String valid : validFonts) {
-                        if (normalizedFont.contains(valid)) {
-                            foundValidFont = true;
-                            break;
-                        }
+            PDFTextStripper stripper = new PDFTextStripper() {
+                @Override
+                protected void writeString(String text, List<TextPosition> textPositions) throws IOException {
+                    super.writeString(text, textPositions);
+                    if (textPositions == null) {
+                        return;
+                    }
+
+                    for (TextPosition textPosition : textPositions) {
+                        collectFontNames(textPosition.getFont(), detectedFonts, normalizedFonts);
                     }
                 }
-                if (foundValidFont) {
-                    report.addInfo("Font is compliant. Times New Roman or an equivalent font was detected.");
-                    report.setFontCompliant(true);
-                    break;
-                }
-            }
-            pdfDoc.close();
-        } catch (Exception e) {
-            report.addError("Error checking font using iText: " + e.getMessage());
+            };
+
+            stripper.getText(document);
+        } catch (IOException e) {
+            report.addError("Error checking font using PDFBox: " + e.getMessage());
+            report.setFontCompliant(false);
             return;
         }
 
-        if (!foundValidFont) {
-            String fontsList = String.join(", ", detectedFonts);
-            report.addError("Times New Roman or an equivalent font was not detected. Detected fonts: " + fontsList);
-            report.setFontCompliant(false);
+        if (containsCompatibleSerifFont(normalizedFonts)) {
+            report.addInfo("Font is compliant. An IEEE-compatible serif font was detected.");
+            report.setFontCompliant(true);
+            return;
         }
+
+        if (detectedFonts.isEmpty() || containsOnlyFontAliases(detectedFonts)) {
+            String aliasList = detectedFonts.isEmpty() ? "none" : String.join(", ", detectedFonts);
+            report.addWarn(RuleCode.FONT_COMPLIANCE,
+                    "Font family could not be reliably resolved from embedded PDF CIDFont aliases. Detected aliases: " + aliasList);
+            report.setFontCompliant(false);
+            return;
+        }
+
+        String fontsList = String.join(", ", detectedFonts);
+        report.addFail(RuleCode.FONT_COMPLIANCE,
+                "Times New Roman or an IEEE-compatible serif font was not detected. Detected fonts: " + fontsList);
+        report.setFontCompliant(false);
     }
 
     private void checkAuthorDetailsFormat(PDDocument document, ComplianceReport report) throws IOException {
@@ -322,11 +315,7 @@ public class RuleEngine {
     }
 
     private void checkConclusionPresence(String fullText, ComplianceReport report) {
-        if (containsSectionHeading(fullText,
-                "Conclusion",
-                "Conclusions",
-                "Conclusion and Future Work",
-                "Conclusion & Future Work")) {
+        if (hasConclusionHeading(fullText)) {
             report.addPass(RuleCode.CONCLUSION_PRESENT, "A conclusion section was detected.");
             return;
         }
@@ -406,6 +395,78 @@ public class RuleEngine {
         }
     }
 
+    private void checkFigureRules(PDDocument document, String fullText, ComplianceReport report) throws IOException {
+        boolean hasFigureCaption = detectFigureCaptions(fullText);
+        List<FigureCaption> figureCaptions = extractFigureCaptions(fullText);
+        boolean hasPdfImages = detectPdfImages(document);
+        boolean figurePresent = hasFigureCaption || hasPdfImages;
+
+        if (figurePresent) {
+            if (hasFigureCaption) {
+                report.addPass(RuleCode.FIGURE_PRESENT, "At least one figure was detected in the paper.");
+                report.addPass(RuleCode.FIGURE_CAPTION_PRESENT, "At least one figure caption was detected.");
+                if (figureCaptions.isEmpty()) {
+                    report.addNotApplicable(RuleCode.FIGURE_CAPTION_FORMAT, "Figure caption format was not checked because no strict figure caption lines were extracted.");
+                    report.addNotApplicable(RuleCode.FIGURE_NUMBERING_SEQUENCE, "Figure numbering was not checked because no strict figure caption lines were extracted.");
+                    report.addNotApplicable(RuleCode.FIGURE_IN_TEXT_MENTION, "Figure in-text mention checks were skipped because no strict figure caption lines were extracted.");
+                } else {
+                    checkFigureCaptionFormat(figureCaptions, report);
+                    checkFigureNumberingSequence(figureCaptions, report);
+                    checkFigureInTextMentions(fullText, figureCaptions, report);
+                }
+            } else {
+                report.addPass(RuleCode.FIGURE_PRESENT, "At least one embedded PDF image was detected in the paper.");
+                report.addFail(RuleCode.FIGURE_CAPTION_PRESENT, "A figure or embedded image was detected, but no valid figure caption pattern such as 'Fig. 1. ...' was found.");
+                report.addNotApplicable(RuleCode.FIGURE_CAPTION_FORMAT, "Figure caption format was not checked because no figure captions were detected.");
+                report.addNotApplicable(RuleCode.FIGURE_NUMBERING_SEQUENCE, "Figure numbering was not checked because no figure captions were detected.");
+                report.addNotApplicable(RuleCode.FIGURE_IN_TEXT_MENTION, "Figure in-text mention checks were skipped because no figure captions were detected.");
+            }
+            return;
+        }
+
+        report.addFail(RuleCode.FIGURE_PRESENT, "No figure was detected in the paper. At least one figure is expected for this project requirement.");
+        report.addNotApplicable(RuleCode.FIGURE_CAPTION_PRESENT, "Figure caption checks were skipped because no figure was detected.");
+        report.addNotApplicable(RuleCode.FIGURE_CAPTION_FORMAT, "Figure caption format was not checked because no figure was detected.");
+        report.addNotApplicable(RuleCode.FIGURE_NUMBERING_SEQUENCE, "Figure numbering was not checked because no figure was detected.");
+        report.addNotApplicable(RuleCode.FIGURE_IN_TEXT_MENTION, "Figure in-text mention checks were skipped because no figure was detected.");
+    }
+
+    private void checkTableRules(String fullText, ComplianceReport report) {
+        boolean hasTableCaption = detectTableCaptions(fullText);
+        List<TableCaption> tableCaptions = extractTableCaptions(fullText);
+        boolean hasTableLikeText = detectTableLikeText(fullText);
+        boolean tablePresent = hasTableCaption || hasTableLikeText;
+
+        if (tablePresent) {
+            if (hasTableCaption) {
+                report.addPass(RuleCode.TABLE_PRESENT, "At least one table was detected in the paper.");
+                report.addPass(RuleCode.TABLE_CAPTION_PRESENT, "At least one table caption or title was detected.");
+                if (tableCaptions.isEmpty()) {
+                    report.addNotApplicable(RuleCode.TABLE_CAPTION_FORMAT, "Table caption format was not checked because no strict table caption lines were extracted.");
+                    report.addNotApplicable(RuleCode.TABLE_NUMBERING_SEQUENCE, "Table numbering was not checked because no strict table caption lines were extracted.");
+                    report.addNotApplicable(RuleCode.TABLE_IN_TEXT_MENTION, "Table in-text mention checks were skipped because no strict table caption lines were extracted.");
+                } else {
+                    checkTableCaptionFormat(tableCaptions, report);
+                    checkTableNumberingSequence(tableCaptions, report);
+                    checkTableInTextMentions(fullText, tableCaptions, report);
+                }
+            } else {
+                report.addPass(RuleCode.TABLE_PRESENT, "Table-like structured content was detected in the paper.");
+                report.addFail(RuleCode.TABLE_CAPTION_PRESENT, "Table-like content was detected, but no valid table caption or title such as 'TABLE I' or 'Table 1' was found.");
+                report.addNotApplicable(RuleCode.TABLE_CAPTION_FORMAT, "Table caption format was not checked because no table captions were detected.");
+                report.addNotApplicable(RuleCode.TABLE_NUMBERING_SEQUENCE, "Table numbering was not checked because no table captions were detected.");
+                report.addNotApplicable(RuleCode.TABLE_IN_TEXT_MENTION, "Table in-text mention checks were skipped because no table captions were detected.");
+            }
+            return;
+        }
+
+        report.addFail(RuleCode.TABLE_PRESENT, "No table was detected in the paper. At least one table is expected for this project requirement.");
+        report.addNotApplicable(RuleCode.TABLE_CAPTION_PRESENT, "Table caption checks were skipped because no table was detected.");
+        report.addNotApplicable(RuleCode.TABLE_CAPTION_FORMAT, "Table caption format was not checked because no table was detected.");
+        report.addNotApplicable(RuleCode.TABLE_NUMBERING_SEQUENCE, "Table numbering was not checked because no table was detected.");
+        report.addNotApplicable(RuleCode.TABLE_IN_TEXT_MENTION, "Table in-text mention checks were skipped because no table was detected.");
+    }
+
     private String extractFullText(PDDocument document) throws IOException {
         PDFTextStripper textStripper = new PDFTextStripper();
         return textStripper.getText(document);
@@ -466,6 +527,23 @@ public class RuleEngine {
                 return true;
             }
         }
+        return false;
+    }
+
+    private boolean hasConclusionHeading(String text) {
+        Pattern conclusionHeadingPattern = Pattern.compile(
+                "(?i)^\\s*(?:(?:[IVXLCDM]+|\\d+)\\s*\\.?\\s*)?"
+                        + "(?:CONCLUSIONS?"
+                        + "|CONCLUSION\\s+(?:AND|&)\\s+FUTURE\\s+(?:WORK|SCOPE))\\s*$"
+        );
+
+        for (String line : text.split("\\R")) {
+            String normalizedLine = line.replaceAll("\\s+", " ").trim();
+            if (!normalizedLine.isBlank() && conclusionHeadingPattern.matcher(normalizedLine).matches()) {
+                return true;
+            }
+        }
+
         return false;
     }
 
@@ -600,12 +678,440 @@ public class RuleEngine {
         return null;
     }
 
+    private String validateSequentialNumbers(List<Integer> numbers, String label) {
+        if (numbers.isEmpty()) {
+            return "No numbered " + label.toLowerCase(Locale.ROOT) + " entries were found to validate.";
+        }
+
+        if (numbers.get(0) != 1) {
+            return label + " numbering should start from 1, but the first detected entry was " + numbers.get(0) + ".";
+        }
+
+        for (int i = 1; i < numbers.size(); i++) {
+            int expected = numbers.get(i - 1) + 1;
+            int actual = numbers.get(i);
+
+            if (actual == numbers.get(i - 1)) {
+                return "Duplicate " + label.toLowerCase(Locale.ROOT) + " number detected: " + actual + ".";
+            }
+
+            if (actual != expected) {
+                return label + " numbering is not sequential. Expected " + expected + " but found " + actual + ".";
+            }
+        }
+
+        return null;
+    }
+
     private String formatNumbers(Set<Integer> numbers) {
         return numbers.stream()
                 .sorted()
                 .map(number -> "[" + number + "]")
                 .reduce((left, right) -> left + ", " + right)
                 .orElse("");
+    }
+
+    private String formatPlainNumbers(List<Integer> numbers, String prefix) {
+        return numbers.stream()
+                .sorted()
+                .map(number -> prefix + " " + number)
+                .reduce((left, right) -> left + ", " + right)
+                .orElse("");
+    }
+
+    private void checkFigureCaptionFormat(List<FigureCaption> figureCaptions, ComplianceReport report) {
+        boolean allPreferred = figureCaptions.stream().allMatch(FigureCaption::preferredFormat);
+        if (allPreferred) {
+            report.addPass(RuleCode.FIGURE_CAPTION_FORMAT, "Detected figure captions follow the preferred IEEE-style format 'Fig. <number>. <caption text>'.");
+            return;
+        }
+
+        report.addWarn(RuleCode.FIGURE_CAPTION_FORMAT,
+                "One or more figure captions use a non-preferred format. IEEE style prefers 'Fig. <number>. <caption text>'.");
+    }
+
+    private void checkFigureNumberingSequence(List<FigureCaption> figureCaptions, ComplianceReport report) {
+        if (figureCaptions.size() < 2) {
+            report.addPass(RuleCode.FIGURE_NUMBERING_SEQUENCE, "Fewer than two figure captions were detected, so figure numbering is acceptable.");
+            return;
+        }
+
+        String numberingIssue = validateSequentialNumbers(
+                figureCaptions.stream().map(FigureCaption::number).toList(),
+                "Figure");
+        if (numberingIssue == null) {
+            report.addPass(RuleCode.FIGURE_NUMBERING_SEQUENCE, "Figure captions are numbered sequentially.");
+        } else {
+            report.addWarn(RuleCode.FIGURE_NUMBERING_SEQUENCE, numberingIssue);
+        }
+    }
+
+    private void checkFigureInTextMentions(String fullText, List<FigureCaption> figureCaptions, ComplianceReport report) {
+        String bodyText = removeMatchingLines(fullText, getFigureCaptionPattern());
+        List<Integer> missingMentions = new ArrayList<>();
+
+        for (FigureCaption caption : figureCaptions) {
+            Pattern mentionPattern = Pattern.compile(
+                    "(?i)\\b(?:fig\\.|figure)\\s*" + caption.number() + "(?:\\.)?(?=\\b|\\s|[,;:])"
+            );
+            if (!mentionPattern.matcher(bodyText).find()) {
+                missingMentions.add(caption.number());
+            }
+        }
+
+        if (missingMentions.isEmpty()) {
+            report.addPass(RuleCode.FIGURE_IN_TEXT_MENTION, "Every detected figure caption is referenced in the body text.");
+        } else {
+            report.addWarn(RuleCode.FIGURE_IN_TEXT_MENTION,
+                    "Some figures are not referenced in the body text: " + formatPlainNumbers(missingMentions, "Fig.") + ".");
+        }
+    }
+
+    private List<FigureCaption> extractFigureCaptions(String text) {
+        List<FigureCaption> captions = new ArrayList<>();
+        Pattern figureCaptionPattern = getFigureCaptionPattern();
+
+        for (String line : text.split("\\R")) {
+            String normalizedLine = line.replaceAll("\\s+", " ").trim();
+            if (normalizedLine.isBlank()) {
+                continue;
+            }
+
+            Matcher matcher = figureCaptionPattern.matcher(normalizedLine);
+            if (!matcher.matches()) {
+                continue;
+            }
+
+            int figureNumber = Integer.parseInt(matcher.group(1));
+            boolean preferred = normalizedLine.matches("(?i)^fig\\.\\s*\\d+\\s*\\.\\s+.+$");
+            captions.add(new FigureCaption(figureNumber, normalizedLine, preferred));
+        }
+
+        return captions;
+    }
+
+    private Pattern getFigureCaptionPattern() {
+        return Pattern.compile("(?i)^\\s*(?:fig\\.|figure)\\s*(\\d+)\\s*\\.\\s+.+$");
+    }
+
+    private boolean detectFigureCaptions(String text) {
+        return !extractFigureCaptions(text).isEmpty();
+    }
+
+    private boolean detectPdfImages(PDDocument document) throws IOException {
+        for (PDPage page : document.getPages()) {
+            PDResources resources = page.getResources();
+            if (resources == null) {
+                continue;
+            }
+
+            for (COSName xObjectName : resources.getXObjectNames()) {
+                PDXObject xObject = resources.getXObject(xObjectName);
+                if (xObject instanceof PDImageXObject) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private void checkTableCaptionFormat(List<TableCaption> tableCaptions, ComplianceReport report) {
+        boolean allPreferred = tableCaptions.stream().allMatch(TableCaption::preferredFormat);
+        if (allPreferred) {
+            report.addPass(RuleCode.TABLE_CAPTION_FORMAT, "Detected table captions follow the preferred IEEE-style Roman numeral format.");
+            return;
+        }
+
+        report.addWarn(RuleCode.TABLE_CAPTION_FORMAT,
+                "One or more table captions use a non-preferred numeric format. IEEE style prefers 'TABLE <Roman numeral>'.");
+    }
+
+    private void checkTableNumberingSequence(List<TableCaption> tableCaptions, ComplianceReport report) {
+        if (tableCaptions.size() < 2) {
+            report.addPass(RuleCode.TABLE_NUMBERING_SEQUENCE, "Fewer than two table captions were detected, so table numbering is acceptable.");
+            return;
+        }
+
+        String numberingIssue = validateSequentialNumbers(
+                tableCaptions.stream().map(TableCaption::number).toList(),
+                "Table");
+        if (numberingIssue == null) {
+            report.addPass(RuleCode.TABLE_NUMBERING_SEQUENCE, "Table captions are numbered sequentially.");
+        } else {
+            report.addWarn(RuleCode.TABLE_NUMBERING_SEQUENCE, numberingIssue);
+        }
+    }
+
+    private void checkTableInTextMentions(String fullText, List<TableCaption> tableCaptions, ComplianceReport report) {
+        String bodyText = removeExactLines(fullText, tableCaptions.stream().map(TableCaption::rawLine).toList());
+        List<String> missingMentions = new ArrayList<>();
+
+        for (TableCaption caption : tableCaptions) {
+            String romanNumber = toRoman(caption.number());
+            Pattern mentionPattern = Pattern.compile(
+                    "(?i)\\btable\\s*(?:" + Pattern.quote(caption.displayNumber()) + "|" + Pattern.quote(String.valueOf(caption.number())) + "|" + Pattern.quote(romanNumber) + ")\\b"
+            );
+            if (!mentionPattern.matcher(bodyText).find()) {
+                missingMentions.add("Table " + caption.displayNumber());
+            }
+        }
+
+        if (missingMentions.isEmpty()) {
+            report.addPass(RuleCode.TABLE_IN_TEXT_MENTION, "Every detected table caption is referenced in the body text.");
+        } else {
+            report.addWarn(RuleCode.TABLE_IN_TEXT_MENTION,
+                    "Some tables are not referenced in the body text: " + String.join(", ", missingMentions) + ".");
+        }
+    }
+
+    private List<TableCaption> extractTableCaptions(String text) {
+        List<TableCaption> captions = new ArrayList<>();
+        Pattern tableCaptionPattern = getTableCaptionPattern();
+
+        for (String line : text.split("\\R")) {
+            String normalizedLine = line.replaceAll("\\s+", " ").trim();
+            if (normalizedLine.isBlank()) {
+                continue;
+            }
+
+            Matcher matcher = tableCaptionPattern.matcher(normalizedLine);
+            if (!matcher.matches()) {
+                continue;
+            }
+
+            String numberToken = matcher.group(1);
+            String trailingTitle = matcher.group(2) != null ? matcher.group(2) : matcher.group(3);
+            if (trailingTitle != null && startsWithBodySentenceVerb(trailingTitle)) {
+                continue;
+            }
+
+            int tableNumber = parseSectionNumber(numberToken);
+            if (tableNumber <= 0) {
+                continue;
+            }
+
+            boolean preferred = isRomanNumeral(numberToken);
+            captions.add(new TableCaption(tableNumber, numberToken.toUpperCase(Locale.ROOT), normalizedLine, preferred));
+        }
+
+        return captions;
+    }
+
+    private Pattern getTableCaptionPattern() {
+        return Pattern.compile("(?i)^\\s*table\\s+([ivxlcdm]+|\\d+)\\b(?:\\s*\\.\\s*(.+)|\\s+(.+))?$");
+    }
+
+    private boolean detectTableCaptions(String text) {
+        return !extractTableCaptions(text).isEmpty();
+    }
+
+    private boolean detectTableLikeText(String text) {
+        String[] lines = text.split("\\R");
+        int structuredLines = 0;
+
+        for (String rawLine : lines) {
+            String line = rawLine.trim();
+            if (line.isBlank() || line.length() < 8) {
+                continue;
+            }
+
+            boolean hasColumnSpacing = rawLine.matches(".*\\S\\s{2,}\\S.*");
+            boolean hasTabSpacing = rawLine.contains("\t");
+            boolean hasRepeatedSeparators = rawLine.matches(".*(?:\\|.*\\|.|-{3,}|={3,}).*");
+
+            if (hasColumnSpacing || hasTabSpacing || hasRepeatedSeparators) {
+                structuredLines++;
+                if (structuredLines >= 2) {
+                    return true;
+                }
+            } else {
+                structuredLines = 0;
+            }
+        }
+
+        return false;
+    }
+
+    private String removeMatchingLines(String text, Pattern pattern) {
+        StringBuilder builder = new StringBuilder();
+        for (String line : text.split("\\R")) {
+            String normalizedLine = line.replaceAll("\\s+", " ").trim();
+            if (!normalizedLine.isBlank() && pattern.matcher(normalizedLine).matches()) {
+                continue;
+            }
+            builder.append(line).append(System.lineSeparator());
+        }
+        return builder.toString();
+    }
+
+    private String removeExactLines(String text, List<String> linesToRemove) {
+        Set<String> normalizedLinesToRemove = new HashSet<>();
+        for (String line : linesToRemove) {
+            if (line != null) {
+                normalizedLinesToRemove.add(line.replaceAll("\\s+", " ").trim());
+            }
+        }
+
+        StringBuilder builder = new StringBuilder();
+        for (String line : text.split("\\R")) {
+            String normalizedLine = line.replaceAll("\\s+", " ").trim();
+            if (!normalizedLine.isBlank() && normalizedLinesToRemove.contains(normalizedLine)) {
+                continue;
+            }
+            builder.append(line).append(System.lineSeparator());
+        }
+        return builder.toString();
+    }
+
+    private int parseSectionNumber(String token) {
+        String normalized = token.trim();
+        if (normalized.matches("\\d+")) {
+            return Integer.parseInt(normalized);
+        }
+        if (isRomanNumeral(normalized)) {
+            return romanToInt(normalized);
+        }
+        return -1;
+    }
+
+    private boolean isRomanNumeral(String token) {
+        return token != null && token.matches("(?i)[ivxlcdm]+");
+    }
+
+    private int romanToInt(String roman) {
+        int total = 0;
+        int previous = 0;
+
+        for (int i = roman.length() - 1; i >= 0; i--) {
+            int current = romanCharValue(Character.toUpperCase(roman.charAt(i)));
+            if (current < previous) {
+                total -= current;
+            } else {
+                total += current;
+                previous = current;
+            }
+        }
+
+        return total;
+    }
+
+    private String toRoman(int number) {
+        int remaining = number;
+        int[] values = {1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1};
+        String[] numerals = {"M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"};
+        StringBuilder builder = new StringBuilder();
+
+        for (int i = 0; i < values.length; i++) {
+            while (remaining >= values[i]) {
+                builder.append(numerals[i]);
+                remaining -= values[i];
+            }
+        }
+
+        return builder.toString();
+    }
+
+    private int romanCharValue(char value) {
+        return switch (value) {
+            case 'I' -> 1;
+            case 'V' -> 5;
+            case 'X' -> 10;
+            case 'L' -> 50;
+            case 'C' -> 100;
+            case 'D' -> 500;
+            case 'M' -> 1000;
+            default -> 0;
+        };
+    }
+
+    private boolean startsWithBodySentenceVerb(String text) {
+        String normalized = text.replaceAll("\\s+", " ").trim().toLowerCase(Locale.ROOT);
+        return normalized.matches("^(shows|show|illustrates|illustrate|further illustrates|presents|present|compares|compare|demonstrates|demonstrate|summarizes|summarize|lists|list|reports|report|contains|contain|provides|provide|describes|describe)\\b.*");
+    }
+
+    private void collectFontNames(PDFont font, Set<String> detectedFonts, Set<String> normalizedFonts) {
+        if (font == null) {
+            return;
+        }
+
+        addFontCandidate(font.getName(), detectedFonts, normalizedFonts);
+
+        PDFontDescriptor descriptor = font.getFontDescriptor();
+        if (descriptor != null) {
+            addFontCandidate(descriptor.getFontName(), detectedFonts, normalizedFonts);
+            addFontCandidate(descriptor.getFontFamily(), detectedFonts, normalizedFonts);
+        }
+    }
+
+    private void addFontCandidate(String rawFontName, Set<String> detectedFonts, Set<String> normalizedFonts) {
+        if (rawFontName == null) {
+            return;
+        }
+
+        String trimmed = rawFontName.trim();
+        if (trimmed.isBlank()) {
+            return;
+        }
+
+        String withoutSubsetPrefix = trimmed.replaceFirst("^[A-Z]{6}\\+", "");
+        detectedFonts.add(withoutSubsetPrefix);
+        normalizedFonts.add(normalizeFontName(withoutSubsetPrefix));
+    }
+
+    private String normalizeFontName(String fontName) {
+        return fontName
+                .toLowerCase(Locale.ROOT)
+                .replaceAll("[\\s\\-,]+", "");
+    }
+
+    private boolean containsCompatibleSerifFont(Set<String> normalizedFonts) {
+        for (String font : normalizedFonts) {
+            if (font.contains("timesnewroman")
+                    || font.equals("times")
+                    || font.contains("timesroman")
+                    || font.contains("timesnewromanpsmt")
+                    || font.contains("nimbusroman")
+                    || font.contains("nimbusromno9l")
+                    || font.contains("liberationserif")
+                    || font.contains("texgyretermes")
+                    || font.equals("cmr")
+                    || font.startsWith("cmr")
+                    || font.contains("computermodernroman")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean containsOnlyFontAliases(Set<String> detectedFonts) {
+        if (detectedFonts.isEmpty()) {
+            return true;
+        }
+
+        for (String font : detectedFonts) {
+            if (!isUnresolvedFontAlias(font)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private boolean isUnresolvedFontAlias(String fontName) {
+        if (fontName == null || fontName.isBlank()) {
+            return true;
+        }
+
+        String trimmed = fontName.trim();
+        String collapsedAlias = trimmed
+                .toLowerCase(Locale.ROOT)
+                .replaceAll("[\\s\\-,+]+", "");
+
+        return trimmed.matches("(?i)f\\d+")
+                || trimmed.matches("(?i)cidfont\\+?f\\d+")
+                || collapsedAlias.matches("f\\d+")
+                || collapsedAlias.matches("cidfontf\\d+");
     }
 
     private boolean isTextJustified(List<TextPosition> textPositions) {
@@ -621,5 +1127,11 @@ public class RuleEngine {
     }
 
     private record ReferencesSection(String bodyText, String sectionText, boolean usesBibliographyHeading) {
+    }
+
+    private record FigureCaption(int number, String rawLine, boolean preferredFormat) {
+    }
+
+    private record TableCaption(int number, String displayNumber, String rawLine, boolean preferredFormat) {
     }
 }
