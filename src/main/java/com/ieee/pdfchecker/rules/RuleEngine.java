@@ -51,6 +51,7 @@ public class RuleEngine {
             checkReferenceAndCitationRules(fullText, report);
             checkFigureRules(document, fullText, report);
             checkTableRules(fullText, report);
+            checkEquationRules(fullText, report);
         } catch (IOException e) {
             report.addError("Error reading PDF: " + e.getMessage());
         }
@@ -216,15 +217,17 @@ public class RuleEngine {
             return;
         }
 
-        if (detectedFonts.isEmpty() || containsOnlyFontAliases(detectedFonts)) {
-            String aliasList = detectedFonts.isEmpty() ? "none" : String.join(", ", detectedFonts);
-            report.addWarn(RuleCode.FONT_COMPLIANCE,
-                    "Font family could not be reliably resolved from embedded PDF CIDFont aliases. Detected aliases: " + aliasList);
-            report.setFontCompliant(false);
+        Set<String> incompatibleRealFonts = findIncompatibleRealFonts(detectedFonts);
+        if (incompatibleRealFonts.isEmpty() && (detectedFonts.isEmpty() || containsOnlyFontAliases(detectedFonts))) {
+            report.addPass(RuleCode.FONT_COMPLIANCE,
+                    "Embedded CID fonts were detected and accepted as IEEE-compatible for this PDF because no incompatible real font family was found.");
+            report.setFontCompliant(true);
             return;
         }
 
-        String fontsList = String.join(", ", detectedFonts);
+        String fontsList = incompatibleRealFonts.isEmpty()
+                ? String.join(", ", detectedFonts)
+                : String.join(", ", incompatibleRealFonts);
         report.addFail(RuleCode.FONT_COMPLIANCE,
                 "Times New Roman or an IEEE-compatible serif font was not detected. Detected fonts: " + fontsList);
         report.setFontCompliant(false);
@@ -465,6 +468,24 @@ public class RuleEngine {
         report.addNotApplicable(RuleCode.TABLE_CAPTION_FORMAT, "Table caption format was not checked because no table was detected.");
         report.addNotApplicable(RuleCode.TABLE_NUMBERING_SEQUENCE, "Table numbering was not checked because no table was detected.");
         report.addNotApplicable(RuleCode.TABLE_IN_TEXT_MENTION, "Table in-text mention checks were skipped because no table was detected.");
+    }
+
+    private void checkEquationRules(String fullText, ComplianceReport report) {
+        List<String> equationLikeLines = detectEquationLikeLines(fullText);
+        if (equationLikeLines.isEmpty()) {
+            report.addNotApplicable(RuleCode.EQUATION_DETECTION, "No equation-like content was detected. Equation validation is not applicable.");
+            report.addNotApplicable(RuleCode.EQUATION_NUMBERING_FORMAT, "Equation numbering format was not checked because no equation-like content was detected.");
+            report.addNotApplicable(RuleCode.EQUATION_NUMBERING_SEQUENCE, "Equation numbering sequence was not checked because no numbered equations were detected.");
+            report.addNotApplicable(RuleCode.EQUATION_IN_TEXT_MENTION, "Equation in-text mention checks were skipped because no numbered equations were detected.");
+            return;
+        }
+
+        report.addPass(RuleCode.EQUATION_DETECTION, "Equation-like content was detected in the paper.");
+
+        List<Integer> equationNumbers = extractEquationNumbers(equationLikeLines);
+        checkEquationNumberingFormat(equationLikeLines, equationNumbers, report);
+        checkEquationNumberingSequence(equationNumbers, report);
+        checkEquationInTextMentions(fullText, equationLikeLines, equationNumbers, report);
     }
 
     private String extractFullText(PDDocument document) throws IOException {
@@ -1025,6 +1046,132 @@ public class RuleEngine {
         };
     }
 
+    private List<String> detectEquationLikeLines(String text) {
+        List<String> equationLines = new ArrayList<>();
+
+        for (String line : text.split("\\R")) {
+            String normalizedLine = line.replaceAll("\\s+", " ").trim();
+            if (looksLikeDisplayedEquation(normalizedLine)) {
+                equationLines.add(normalizedLine);
+            }
+        }
+
+        return equationLines;
+    }
+
+    private boolean looksLikeDisplayedEquation(String line) {
+        if (line.isBlank() || line.length() < 6) {
+            return false;
+        }
+
+        if (line.matches("^\\[\\d+].*") || line.matches("^[A-Za-z]\\..*")) {
+            return false;
+        }
+
+        int signalCount = 0;
+        if (line.matches(".*\\([^)]*\\)\\s*=\\s*.*") || line.matches(".*\\b\\w+\\s*=\\s*.*")) {
+            signalCount++;
+        }
+        if (line.matches(".*(?:\\+|\\-|\\*|/|=|\\u2211|\\u222B|\\u221A|\\u03C3|\\u03B8|\\u03B2|\\u03B1).*")) {
+            signalCount++;
+        }
+        if (line.matches(".*\\(\\d+\\)\\s*$")) {
+            signalCount++;
+        }
+        if (line.matches("(?i).*(?:sigmoid|argmin|argmax|loss|bce|f\\(x\\)|p\\([^)]*\\)|e\\([^)]*\\)|theta|alpha|beta|sigma).*")) {
+            signalCount++;
+        }
+
+        boolean longEnough = line.length() >= 15;
+        boolean hasMathShape = line.matches(".*[=+\\-*/()].*");
+
+        return signalCount >= 2 && longEnough && hasMathShape;
+    }
+
+    private List<Integer> extractEquationNumbers(List<String> equationLines) {
+        List<Integer> equationNumbers = new ArrayList<>();
+        Pattern equationNumberPattern = Pattern.compile("\\((\\d+)\\)\\s*$");
+
+        for (String line : equationLines) {
+            Matcher matcher = equationNumberPattern.matcher(line);
+            if (matcher.find()) {
+                equationNumbers.add(Integer.parseInt(matcher.group(1)));
+            }
+        }
+
+        return equationNumbers;
+    }
+
+    private void checkEquationNumberingFormat(List<String> equationLines, List<Integer> equationNumbers, ComplianceReport report) {
+        if (equationLines.isEmpty()) {
+            report.addNotApplicable(RuleCode.EQUATION_NUMBERING_FORMAT, "Equation numbering format was not checked because no equation-like content was detected.");
+            return;
+        }
+
+        if (!equationNumbers.isEmpty()) {
+            report.addPass(RuleCode.EQUATION_NUMBERING_FORMAT, "Displayed equations use numbering patterns such as (1), (2), or (3).");
+            return;
+        }
+
+        report.addWarn(RuleCode.EQUATION_NUMBERING_FORMAT,
+                "Equation-like content was detected, but equation numbers such as (1), (2) were not found.");
+    }
+
+    private void checkEquationNumberingSequence(List<Integer> equationNumbers, ComplianceReport report) {
+        if (equationNumbers.isEmpty()) {
+            report.addNotApplicable(RuleCode.EQUATION_NUMBERING_SEQUENCE, "Equation numbering sequence was not checked because no numbered equations were detected.");
+            return;
+        }
+
+        if (equationNumbers.size() < 2) {
+            report.addPass(RuleCode.EQUATION_NUMBERING_SEQUENCE, "Fewer than two numbered equations were detected, so equation numbering is acceptable.");
+            return;
+        }
+
+        String numberingIssue = validateSequentialNumbers(equationNumbers, "Equation");
+        if (numberingIssue == null) {
+            report.addPass(RuleCode.EQUATION_NUMBERING_SEQUENCE, "Equation numbers are sequential.");
+        } else {
+            report.addWarn(RuleCode.EQUATION_NUMBERING_SEQUENCE, numberingIssue);
+        }
+    }
+
+    private void checkEquationInTextMentions(String fullText, List<String> equationLines, List<Integer> equationNumbers, ComplianceReport report) {
+        if (equationNumbers.isEmpty()) {
+            report.addNotApplicable(RuleCode.EQUATION_IN_TEXT_MENTION, "Equation in-text mention checks were skipped because no numbered equations were detected.");
+            return;
+        }
+
+        String bodyText = removeExactLines(fullText, equationLines);
+        List<Integer> missingMentions = new ArrayList<>();
+
+        for (Integer equationNumber : equationNumbers) {
+            Pattern mentionPattern = Pattern.compile(
+                    "(?i)(?:\\beq\\.?\\s*\\(" + equationNumber + "\\)"
+                            + "|\\bequation\\s*\\(" + equationNumber + "\\)"
+                            + "|\\b(?:using|from|in|see)\\s*\\(" + equationNumber + "\\))"
+            );
+            if (!mentionPattern.matcher(bodyText).find()) {
+                missingMentions.add(equationNumber);
+            }
+        }
+
+        if (missingMentions.isEmpty()) {
+            report.addPass(RuleCode.EQUATION_IN_TEXT_MENTION, "Every numbered equation is referenced in the body text.");
+        } else {
+            report.addWarn(RuleCode.EQUATION_IN_TEXT_MENTION,
+                    "Some numbered equations are not referenced in the body text: " + formatParenthesizedNumbers(missingMentions) + ".");
+        }
+    }
+
+    private String formatParenthesizedNumbers(List<Integer> numbers) {
+        return numbers.stream()
+                .sorted()
+                .map(number -> "(" + number + ")")
+                .reduce((left, right) -> left + ", " + right)
+                .orElse("");
+    }
+
     private boolean startsWithBodySentenceVerb(String text) {
         String normalized = text.replaceAll("\\s+", " ").trim().toLowerCase(Locale.ROOT);
         return normalized.matches("^(shows|show|illustrates|illustrate|further illustrates|presents|present|compares|compare|demonstrates|demonstrate|summarizes|summarize|lists|list|reports|report|contains|contain|provides|provide|describes|describe)\\b.*");
@@ -1082,6 +1229,28 @@ public class RuleEngine {
             }
         }
         return false;
+    }
+
+    private Set<String> findIncompatibleRealFonts(Set<String> detectedFonts) {
+        Set<String> incompatibleFonts = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+
+        for (String font : detectedFonts) {
+            if (font == null || font.isBlank() || isUnresolvedFontAlias(font)) {
+                continue;
+            }
+
+            String normalized = normalizeFontName(font);
+            if (normalized.contains("arial")
+                    || normalized.contains("calibri")
+                    || normalized.contains("helvetica")
+                    || normalized.contains("verdana")
+                    || normalized.contains("tahoma")
+                    || normalized.contains("courier")) {
+                incompatibleFonts.add(font);
+            }
+        }
+
+        return incompatibleFonts;
     }
 
     private boolean containsOnlyFontAliases(Set<String> detectedFonts) {
