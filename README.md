@@ -132,14 +132,26 @@ Prerequisites
 - MySQL
 
 ### Environment Variables
-- DB_URL=jdbc:mysql://localhost:3306/ieee_compliance
-- DB_USERNAME=root
-- DB_PASSWORD=your_password
-- JPA_DDL_AUTO=update
-- UPLOAD_DIR=uploads
-- PORT=8080
 
-Run Backend
+The application expects database configuration through environment variables:
+
+```bash
+DB_URL=jdbc:mysql://localhost:3306/ieee_compliance
+DB_USERNAME=root
+DB_PASSWORD=your_password
+JPA_DDL_AUTO=update
+UPLOAD_DIR=uploads
+PORT=8080
+FRONTEND_URL=http://localhost:3000
+```
+
+### Run Locally
+
+1. Create a MySQL database, for example `ieee_compliance`.
+2. Set the environment variables above.
+3. Start the backend:
+
+```bash
 ./mvnw spring-boot:run
 
 Backend runs on: http://localhost:8080
@@ -153,4 +165,39 @@ Backend runs on: http://localhost:8080
 - MySQL
 - Apache PDFBox
 - iText
-- React (Vite)
+
+## Frontend
+
+Frontend repository:
+
+`https://github.com/1Ninad/Compliance-Checker-Frontend`
+
+## Deployment
+
+Set these environment variables before deploying.
+
+### Frontend
+
+```bash
+VITE_API_BASE_URL=https://your-backend-domain
+```
+
+If `VITE_API_BASE_URL` is not set, the frontend still falls back to `http://localhost:8080` for local development.
+
+### Backend
+
+```bash
+DB_URL=jdbc:mysql://your-db-host:3306/ieee_compliance
+DB_USERNAME=your_db_username
+DB_PASSWORD=your_db_password
+JPA_DDL_AUTO=update
+PORT=8080
+UPLOAD_DIR=uploads
+FRONTEND_URL=https://your-frontend-domain
+```
+
+Notes:
+
+- `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `JPA_DDL_AUTO`, `PORT`, `UPLOAD_DIR`, and `FRONTEND_URL` can be set in Render.
+- `FRONTEND_URL` is used by backend CORS to allow your deployed frontend origin.
+- Local defaults remain in place for development when deployment variables are not provided.
